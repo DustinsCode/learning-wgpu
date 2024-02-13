@@ -24,17 +24,44 @@ unsafe impl bytemuck::Zeroable for Vertex {}
 
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] },
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] },
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] },
-    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] },
-    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [0.0, 0.0, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [0.0, -0.25, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [-0.25, -0.25, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [-0.25, 0.0, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [-0.0833, 0.125, 0.0], color: [0.0, 0.5, 0.5] },
+    Vertex { position: [0.125, 0.125, 0.0], color: [0.0, 0.5, 0.5] },
+    Vertex { position: [0.125, -0.0833, 0.0], color: [0.25, 0.75, 0.0] },
 ];
 
 const INDICES: &[u16] = &[
-    0,1,4,
-    1,2,4,
-    2,3,4,
+    0,2,1,
+    2,0,3,
+    3,0,4,
+    4,0,5,
+    0,6,5,
+    0,1,6
+];
+
+const TRANSLATE_Y: f32 = 0.25;
+const TRANSLATE_X: f32 = 0.0;
+
+const VERTICES2: &[Vertex] = &[
+    Vertex { position: [0.0+ TRANSLATE_X, 0.0+ TRANSLATE_Y, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [0.0+ TRANSLATE_X, -0.25+ TRANSLATE_Y, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [-0.25+ TRANSLATE_X, -0.25+ TRANSLATE_Y, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [-0.25+ TRANSLATE_X, 0.0+ TRANSLATE_Y, 0.0], color: [0.5, 0.0, 0.5] },
+    Vertex { position: [-0.0833+ TRANSLATE_X, 0.125+ TRANSLATE_Y, 0.0], color: [0.0, 0.5, 0.5] },
+    Vertex { position: [0.125+ TRANSLATE_X, 0.125+ TRANSLATE_Y, 0.0], color: [0.0, 0.5, 0.5] },
+    Vertex { position: [0.125+ TRANSLATE_X, -0.0833+ TRANSLATE_Y, 0.0], color: [0.25, 0.75, 0.0] },
+];
+
+const INDICES2: &[u16] = &[
+    0,2,1,
+    2,0,3,
+    3,0,4,
+    4,0,5,
+    0,6,5,
+    0,1,6
 ];
 
 impl Vertex {
@@ -55,18 +82,21 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     size: PhysicalSize<u32>,
     clear_color: wgpu::Color,
-    triangle_pos_color: bool,
+    shape_toggle: bool,
     window: Window,
     render_pipeline: wgpu::RenderPipeline,
-    triangle_pos_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    num_indices: u32
+    num_indices: u32,
+
+    vertex_buffer2: wgpu::Buffer,
+    index_buffer2: wgpu::Buffer,
+    num_indices2: u32
 }
 
 impl State {
     async fn new(window: Window) -> Self {
-        let triangle_pos_color = true;
+        let shape_toggle = true;
         let size = window.inner_size();
 
         // The instance is used to create the surface and the adapter
@@ -177,43 +207,6 @@ impl State {
             multiview: None
         });
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("position.wgsl"));
-
-        let triangle_pos_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[Vertex::desc()]
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL
-                })]
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None
-        });
-
         let vertex_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
@@ -230,7 +223,25 @@ impl State {
             }
         );
 
+        let vertex_buffer2 = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(VERTICES2),
+                usage: wgpu::BufferUsages::VERTEX
+            }
+        );
+
+        let index_buffer2 = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(INDICES2),
+                usage: wgpu::BufferUsages::INDEX
+            }
+        );
+
+
         let num_indices = INDICES.len() as u32;
+        let num_indices2 = INDICES2.len() as u32;
 
         Self {
             surface,
@@ -239,13 +250,15 @@ impl State {
             config,
             size,
             clear_color,
-            triangle_pos_color,
+            shape_toggle,
             window,
             render_pipeline,
-            triangle_pos_pipeline,
             vertex_buffer,
             index_buffer,
-            num_indices
+            num_indices,
+            vertex_buffer2,
+            index_buffer2,
+            num_indices2
         }
     }
 
@@ -275,7 +288,7 @@ impl State {
             },
                 ..
             } => {
-                self.triangle_pos_color = !self.triangle_pos_color;
+                self.shape_toggle = !self.shape_toggle;
                 true
             },
             WindowEvent::CursorMoved {position, .. } => {
@@ -318,14 +331,17 @@ impl State {
                 occlusion_query_set: None,
                 timestamp_writes: None
             });
-            if !self.triangle_pos_color {
-                render_pass.set_pipeline(&self.triangle_pos_pipeline)
-            }else {
-                render_pass.set_pipeline(&self.render_pipeline);
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            if !self.shape_toggle {
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices, 0,0..1);
+            } else {
+                render_pass.set_vertex_buffer(0, self.vertex_buffer2.slice(..));
+                render_pass.set_index_buffer(self.index_buffer2.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.num_indices2, 0,0..1);
             }
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0,0..1);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
