@@ -1,9 +1,11 @@
 mod texture;
 mod camera;
+mod instance;
 
 use std::default::Default;
 use image::GenericImageView;
 use wgpu::util::DeviceExt;
+use cgmath::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -83,13 +85,36 @@ struct State {
     index_buffer: wgpu::Buffer,
     num_indices: u32,
     diffuse_bind_group: wgpu::BindGroup,
-    diffuse_texture: texture::Texture
+    diffuse_texture: texture::Texture,
+    instances: Vec<instance::Instance>,
+    instance_buffer: wgpu::Buffer
 }
 
 impl State {
     async fn new(window: Window) -> Self {
         let shape_toggle = true;
         let size = window.inner_size();
+        const INSTANCES_PER_ROW: u32 = 10;
+        const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+            INSTANCES_PER_ROW as f32 * 0.5,
+            0.0,
+            INSTANCES_PER_ROW as f32 * 0.5);
+
+        let instances = (0..INSTANCES_PER_ROW).flat_map(|z| {
+            (0..INSTANCES_PER_ROW).map(move |x| {
+                let position = cgmath::Vector3 {x: x as f32, y: 0.0, z: z as f32} - INSTANCE_DISPLACEMENT;
+
+                let rotation = if position.is_zero() {
+                    cgmath::Quaternion::from_axis_angle(cgmath::Vector3::unit_z(), cgmath::Deg(0.0))
+                } else {
+                    cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                };
+
+                instance::Instance {
+                    position, rotation
+                }
+            })
+        }).collect::<Vec<_>>();
 
         // The instance is used to create the surface and the adapter
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -265,7 +290,7 @@ impl State {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()]
+                buffers: &[Vertex::desc(), instance::InstanceRaw::desc()]
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -312,7 +337,16 @@ impl State {
 
         let num_indices = INDICES.len() as u32;
 
-        Self {
+        let instance_data = instances.iter().map(instance::Instance::to_raw).collect::<Vec<_>>();
+        let instance_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsages::VERTEX
+            }
+        );
+
+            Self {
             surface,
             device,
             queue,
@@ -330,7 +364,9 @@ impl State {
             index_buffer,
             num_indices,
             diffuse_bind_group,
-            diffuse_texture
+            diffuse_texture,
+            instances,
+            instance_buffer
         }
     }
 
@@ -389,9 +425,9 @@ impl State {
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(0..self.num_indices, 0,0..1);
-
+            render_pass.draw_indexed(0..self.num_indices, 0,0..self.instances.len() as _);
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
