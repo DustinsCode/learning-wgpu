@@ -67,6 +67,8 @@ impl Vertex {
     }
 }
 
+const ROTATION_SPEED: f32 = 2.0 * std::f32::consts::PI / 60.0;
+
 struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -342,7 +344,7 @@ impl State {
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Instance Buffer"),
                 contents: bytemuck::cast_slice(&instance_data),
-                usage: wgpu::BufferUsages::VERTEX
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST
             }
         );
 
@@ -395,6 +397,16 @@ impl State {
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+
+        for instance in &mut self.instances {
+            let amount = cgmath::Quaternion::from_angle_y(cgmath::Rad(ROTATION_SPEED));
+            let current = instance.rotation;
+            instance.rotation = amount * current;
+        }
+        let instance_data = self.instances.iter()
+            .map(instance::Instance::to_raw)
+            .collect::<Vec<_>>();
+        self.queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(&instance_data));
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
