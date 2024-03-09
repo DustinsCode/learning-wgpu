@@ -99,10 +99,6 @@ impl CameraController {
                         true
                     }
                     _ => {
-                        // self.is_right_pressed = false;
-                        // self.is_left_pressed = false;
-                        // self.is_forward_pressed = false;
-                        // self.is_backward_pressed = false;
                         false
                     }
                 }
